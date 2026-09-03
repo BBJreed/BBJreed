@@ -1,0 +1,225 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- NextAuth (identity + multi-account linking) ----------
+// Each row in Account is one connected OAuth provider (Google, GitHub, ...).
+// One User can have many Accounts — that's the "connect all your accounts" story
+// for sign-in providers specifically. See ConnectedService below for
+// integrations that aren't login providers (banking, other AI tools, etc.).
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  createdAt     DateTime  @default(now())
+
+  accounts  Account[]
+  sessions  Session[]
+
+  notes             Note[]
+  goals             Goal[]
+  learningPathItems LearningPathItem[]
+  financialAccounts FinancialAccount[]
+  budgets           Budget[]
+  memoryFacts       MemoryFact[]
+  messages          AssistantMessage[]
+  connectedServices ConnectedService[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ---------- Notepad ----------
+
+model Note {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  content   String
+  tags      String   @default("") // comma-separated; sqlite has no native array type
+  pinned    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ---------- Goals ----------
+// SQLite has no native enum support, so category/status/type fields below are
+// plain strings; the allowed values are enforced by zod in the API routes
+// (see src/app/api/**/route.ts) instead of the database.
+// Goal.category: "career" | "financial" | "health" | "personal" | "learning"
+// Goal.status: "active" | "completed" | "archived"
+
+model Goal {
+  id          String   @id @default(cuid())
+  userId      String
+  title       String
+  description String   @default("")
+  category    String   @default("personal")
+  status      String   @default("active")
+  progress    Int      @default(0) // 0-100
+  targetDate  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  learningPathItems LearningPathItem[]
+}
+
+// ---------- Career learning path ----------
+// LearningPathItem.type: "course" | "book" | "certification" | "project" | "mentorship" | "other"
+// LearningPathItem.status: "planned" | "in_progress" | "done"
+
+model LearningPathItem {
+  id          String   @id @default(cuid())
+  userId      String
+  goalId      String?
+  title       String
+  type        String   @default("course")
+  status      String   @default("planned")
+  resourceUrl String?
+  notes       String   @default("")
+  orderIndex  Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  goal Goal? @relation(fields: [goalId], references: [id], onDelete: SetNull)
+}
+
+// ---------- Financial advisor ----------
+// FinancialAccount.type: "checking" | "savings" | "credit" | "investment" | "loan" | "other"
+
+model FinancialAccount {
+  id           String   @id @default(cuid())
+  userId       String
+  name         String
+  type         String   @default("checking")
+  balance      Float    @default(0)
+  currency     String   @default("USD")
+  connectedVia String   @default("manual") // "manual" | "plaid" (plaid not wired up yet)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+}
+
+model Transaction {
+  id                 String   @id @default(cuid())
+  userId             String
+  financialAccountId String
+  date               DateTime @default(now())
+  description        String
+  amount             Float // positive = income, negative = expense
+  category           String   @default("uncategorized")
+  isRecurring        Boolean  @default(false)
+  createdAt          DateTime @default(now())
+
+  financialAccount FinancialAccount @relation(fields: [financialAccountId], references: [id], onDelete: Cascade)
+}
+
+model Budget {
+  id           String   @id @default(cuid())
+  userId       String
+  category     String
+  monthlyLimit Float
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, category])
+}
+
+// ---------- Assistant memory + chat ----------
+// MemoryFact is the durable "what the assistant knows about you" store.
+// It's populated three ways: the chat route extracting facts from
+// conversation, the other modules contributing structured facts (e.g. an
+// active goal), and manual import from another AI's memory export.
+
+model MemoryFact {
+  id         String   @id @default(cuid())
+  userId     String
+  key        String
+  value      String
+  source     String   @default("chat") // "chat" | "notes" | "goals" | "finance" | "imported"
+  confidence Float    @default(0.7)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
+}
+
+model AssistantMessage {
+  id        String   @id @default(cuid())
+  userId    String
+  role      String // "user" | "assistant"
+  content   String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ---------- Non-login integrations ----------
+// Distinct from Account (NextAuth sign-in providers) above. This is the
+// landing spot for things like Plaid (banking), Notion, Spotify, or another
+// AI assistant's export/API — most are stubs today; status says which.
+
+model ConnectedService {
+  id          String   @id @default(cuid())
+  userId      String
+  provider    String // "plaid" | "notion" | "spotify" | "other-ai" | ...
+  label       String
+  status      String   @default("stub") // "stub" | "connected" | "error"
+  metadata    String   @default("{}") // JSON blob, provider-specific
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+}
