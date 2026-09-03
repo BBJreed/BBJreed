@@ -23,6 +23,7 @@ Read the [technical highlights](https://github.com/BBJreed/fieldlogpro#procore-i
 
 - 🧱 [drywallcalc](https://github.com/BBJreed/drywallcalc) — a drywall estimating calculator (React Native / Expo)
 - 📵 [spam-blocker](https://github.com/BBJreed/spam-blocker) — on-device Android spam call blocker (Kotlin / Compose / Room)
+- 🔥 [Emberhold](./game) — a dark-fantasy idle keep-builder, single-file vanilla JS, no build step ([play it](https://claude.ai/code/artifact/0073e85a-0333-444e-8ba0-99f9eaa0e91f))
 
 ---
 

@@ -1,0 +1,1196 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Emberhold — a dark-fantasy idle keep-builder. Train your Vigil-Warden, summon champions at the Rift Gate, and march them into the Proving Ring. Runs entirely in the browser; progress saves to localStorage.">
+<title>Emberhold</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap">
+<style>
+  :root{
+    --stone-950:#14181b;
+    --stone-900:#1a2024;
+    --stone-850:#1f262a;
+    --stone-800:#262e33;
+    --stone-750:#2b343a;
+    --stone-700:#333d43;
+    --stone-600:#4b565d;
+    --stone-500:#6b7880;
+    --bone:#ece4d3;
+    --bone-dim:#c9c0ac;
+    --muted:#93a5a8;
+    --ember:#e2793a;
+    --ember-bright:#f4995c;
+    --ember-dim:#8a4a28;
+    --wraithglass:#7fd8c4;
+    --wraithglass-dim:#3f6f65;
+    --marrow:#c1466a;
+    --marrow-dim:#6e2a3d;
+    --gold-trim:#c9a24a;
+    --epic:#9b8ce0;
+    --shadow-lg: 0 12px 32px rgba(0,0,0,.5);
+    --shadow-sm: 0 4px 12px rgba(0,0,0,.35);
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    background:var(--stone-950);
+    color:var(--bone);
+    font-family:'Manrope',ui-sans-serif,system-ui,sans-serif;
+  }
+  h1,h2,h3,.display{
+    font-family:'Cinzel',Georgia,serif;
+    text-wrap:balance;
+  }
+  .num,.tabular{
+    font-family:'JetBrains Mono',ui-monospace,Consolas,monospace;
+    font-variant-numeric:tabular-nums;
+  }
+  ::selection{ background:var(--ember-dim); color:var(--bone); }
+  a{ color:var(--wraithglass); }
+
+  /* ---------- ambient embers ---------- */
+  .embers{ position:fixed; inset:0; pointer-events:none; overflow:hidden; z-index:0; }
+  .embers span{
+    position:absolute; bottom:-10px; width:3px; height:3px; border-radius:50%;
+    background:var(--ember-bright); opacity:.55; filter:blur(.5px);
+    animation:rise linear infinite;
+  }
+  @keyframes rise{
+    0%{ transform:translateY(0) translateX(0); opacity:0; }
+    10%{ opacity:.6; }
+    100%{ transform:translateY(-620px) translateX(var(--drift,20px)); opacity:0; }
+  }
+  @media (prefers-reduced-motion: reduce){
+    .embers{ display:none; }
+    *{ animation-duration:.001ms !important; transition-duration:.001ms !important; }
+  }
+
+  /* ---------- shell ---------- */
+  .app{ position:relative; z-index:1; max-width:1180px; margin:0 auto; min-height:100vh; display:flex; flex-direction:column; }
+
+  .hud{
+    position:sticky; top:0; z-index:20;
+    display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px;
+    padding:16px 20px; background:linear-gradient(180deg, var(--stone-900) 0%, rgba(26,32,36,.92) 100%);
+    border-bottom:1px solid var(--stone-700);
+    backdrop-filter:blur(6px);
+  }
+  .brand{ display:flex; align-items:center; gap:12px; }
+  .brand .sigil{
+    width:44px;height:44px;border-radius:50%;
+    background:radial-gradient(circle at 32% 28%, var(--ember-bright), var(--ember) 55%, var(--ember-dim) 100%);
+    border:2px solid var(--gold-trim);
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:var(--shadow-sm);
+    flex:none;
+  }
+  .brand .sigil svg{ width:22px;height:22px; stroke:var(--stone-950); }
+  .brand h1{ font-size:1.35rem; letter-spacing:.04em; margin:0; color:var(--bone); }
+  .brand .sub{ font-size:.72rem; color:var(--muted); letter-spacing:.06em; text-transform:uppercase; margin-top:2px; }
+  .brand .sub b{ color:var(--wraithglass); font-weight:700; }
+
+  .resources{ display:flex; flex-wrap:wrap; gap:8px; }
+  .pill{
+    display:flex; align-items:center; gap:7px;
+    background:var(--stone-850); border:1px solid var(--stone-700); border-radius:999px;
+    padding:6px 12px 6px 8px;
+    font-size:.82rem;
+  }
+  .pill .ico{ width:18px;height:18px; flex:none; }
+  .pill .val{ font-weight:700; color:var(--bone); }
+  .pill.vigil .ico{ stroke:var(--wraithglass); }
+  .pill.ember .ico{ stroke:var(--ember-bright); }
+  .pill.glass .ico{ stroke:var(--wraithglass); }
+  .pill.marrow .ico{ stroke:var(--marrow); }
+  .pill .bar{ width:44px; height:4px; border-radius:2px; background:var(--stone-700); overflow:hidden; margin-left:2px; }
+  .pill .bar i{ display:block; height:100%; background:var(--wraithglass); }
+
+  /* ---------- keep map ---------- */
+  .keep{
+    flex:1; padding:22px 20px 12px;
+  }
+  .keep-head{ display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:14px; flex-wrap:wrap; }
+  .keep-head h2{ font-size:1.05rem; letter-spacing:.05em; color:var(--bone-dim); margin:0; }
+  .keep-head p{ margin:0; font-size:.78rem; color:var(--muted); }
+
+  .grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill, minmax(230px, 1fr));
+    gap:14px;
+  }
+  .tile{
+    position:relative;
+    background:linear-gradient(160deg, var(--stone-850) 0%, var(--stone-900) 100%);
+    border:1px solid var(--stone-700);
+    border-radius:14px;
+    padding:16px;
+    text-align:left;
+    color:var(--bone);
+    cursor:pointer;
+    display:flex; flex-direction:column; gap:10px;
+    transition:border-color .15s ease, transform .12s ease, box-shadow .15s ease;
+    font-family:inherit;
+  }
+  .tile:hover{ border-color:var(--stone-500); transform:translateY(-2px); box-shadow:var(--shadow-sm); }
+  .tile:focus-visible{ outline:2px solid var(--wraithglass); outline-offset:2px; }
+  .tile.feature{ grid-column:span 2; }
+  @media (max-width:520px){ .tile.feature{ grid-column:span 1; } }
+
+  .tile-top{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .emblem{
+    width:46px;height:46px;border-radius:11px; flex:none;
+    display:flex;align-items:center;justify-content:center;
+    background:var(--stone-800); border:1px solid var(--stone-700);
+  }
+  .emblem svg{ width:24px;height:24px; stroke:var(--bone-dim); }
+  .tile h3{ font-size:.95rem; margin:0; letter-spacing:.02em; }
+  .tile .flavor{ font-size:.74rem; color:var(--muted); margin:0; line-height:1.4; }
+  .tile .status{ font-size:.76rem; color:var(--wraithglass); font-weight:600; }
+  .badge{
+    font-size:.68rem; font-weight:700; letter-spacing:.04em; text-transform:uppercase;
+    padding:3px 8px; border-radius:999px; background:var(--ember-dim); color:var(--ember-bright);
+    align-self:flex-start;
+  }
+  .badge.ready{ background:var(--wraithglass-dim); color:var(--wraithglass); }
+
+  /* ---------- dock ---------- */
+  .dock{
+    position:sticky; bottom:0; z-index:20;
+    display:flex; align-items:center; gap:8px;
+    padding:12px 16px calc(12px + env(safe-area-inset-bottom));
+    background:linear-gradient(0deg, var(--stone-900) 0%, rgba(26,32,36,.94) 100%);
+    border-top:1px solid var(--stone-700);
+    backdrop-filter:blur(6px);
+    overflow-x:auto;
+  }
+  .dock-btn{
+    display:flex; flex-direction:column; align-items:center; gap:4px;
+    background:none; border:none; color:var(--muted);
+    font-family:inherit; font-size:.66rem; letter-spacing:.03em; text-transform:uppercase;
+    padding:6px 10px; border-radius:10px; cursor:pointer; flex:none;
+  }
+  .dock-btn svg{ width:20px;height:20px; stroke:var(--muted); }
+  .dock-btn:hover{ color:var(--bone); }
+  .dock-btn:hover svg{ stroke:var(--bone); }
+  .dock-spacer{ flex:1; }
+  .march{
+    display:flex; align-items:center; gap:8px;
+    background:linear-gradient(135deg, var(--ember-bright), var(--ember) 60%, var(--ember-dim));
+    color:#241206; font-weight:800; letter-spacing:.05em; text-transform:uppercase; font-size:.82rem;
+    border:none; border-radius:12px; padding:12px 20px; cursor:pointer; flex:none;
+    box-shadow:0 6px 18px rgba(226,121,58,.35);
+  }
+  .march svg{ width:18px;height:18px; stroke:#241206; }
+  .march:hover{ filter:brightness(1.08); }
+
+  /* ---------- modal ---------- */
+  .overlay{
+    position:fixed; inset:0; z-index:50;
+    background:rgba(10,12,13,.6);
+    display:flex; align-items:flex-end; justify-content:center;
+  }
+  @media (min-width:760px){ .overlay{ align-items:center; } }
+  .overlay.enter{ animation:fadeIn .15s ease; }
+  @keyframes fadeIn{ from{opacity:0;} to{opacity:1;} }
+  .sheet{
+    width:100%; max-width:640px; max-height:88vh; overflow-y:auto;
+    background:var(--stone-900); border:1px solid var(--stone-700);
+    border-radius:18px 18px 0 0;
+    padding:22px 20px calc(22px + env(safe-area-inset-bottom));
+  }
+  .sheet.enter{ animation:slideUp .2s ease; }
+  @media (min-width:760px){ .sheet{ border-radius:18px; } }
+  @keyframes slideUp{ from{ transform:translateY(24px); opacity:0;} to{ transform:translateY(0); opacity:1;} }
+  .sheet-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:6px; }
+  .sheet-head .emblem{ width:40px;height:40px; }
+  .sheet h2{ font-size:1.15rem; margin:0 0 2px; }
+  .sheet .lede{ font-size:.8rem; color:var(--muted); margin:0 0 16px; line-height:1.45; }
+  .close{
+    background:var(--stone-800); border:1px solid var(--stone-700); color:var(--bone-dim);
+    width:32px;height:32px;border-radius:50%; cursor:pointer; flex:none; font-size:1rem; line-height:1;
+  }
+  .close:hover{ color:var(--bone); border-color:var(--stone-500); }
+
+  .row{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 0; border-top:1px solid var(--stone-800); }
+  .row:first-of-type{ border-top:none; }
+  .row .label{ font-size:.86rem; font-weight:600; }
+  .row .meta{ font-size:.72rem; color:var(--muted); margin-top:2px; }
+  .btn{
+    font-family:inherit; font-size:.78rem; font-weight:700; letter-spacing:.02em;
+    padding:9px 14px; border-radius:9px; border:1px solid var(--stone-600); cursor:pointer;
+    background:var(--stone-800); color:var(--bone); white-space:nowrap;
+  }
+  .btn:hover:not(:disabled){ border-color:var(--wraithglass); color:var(--wraithglass); }
+  .btn:disabled{ opacity:.4; cursor:not-allowed; }
+  .btn.primary{ background:linear-gradient(135deg, var(--ember-bright), var(--ember)); border:none; color:#241206; }
+  .btn.primary:hover:not(:disabled){ filter:brightness(1.08); color:#241206; }
+  .btn.ghost{ background:none; }
+
+  .stat-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(110px,1fr)); gap:10px; margin:14px 0; }
+  .stat{ background:var(--stone-850); border:1px solid var(--stone-800); border-radius:10px; padding:10px 12px; }
+  .stat .k{ font-size:.66rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); }
+  .stat .v{ font-size:1.1rem; font-weight:700; margin-top:2px; }
+
+  .barwrap{ height:8px; border-radius:5px; background:var(--stone-800); overflow:hidden; }
+  .barwrap i{ display:block; height:100%; background:linear-gradient(90deg, var(--wraithglass-dim), var(--wraithglass)); }
+
+  .roster-grid, .codex-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:10px; margin-top:6px; }
+  .champ{
+    background:var(--stone-850); border:1px solid var(--stone-800); border-radius:11px; padding:10px; text-align:center;
+  }
+  .champ .portrait{
+    width:100%; aspect-ratio:1; border-radius:9px; margin-bottom:8px;
+    display:flex; align-items:center; justify-content:center; font-family:'Cinzel',serif; font-weight:700; font-size:1.3rem;
+  }
+  .champ .name{ font-size:.72rem; font-weight:700; line-height:1.25; }
+  .champ .rarity{ font-size:.62rem; text-transform:uppercase; letter-spacing:.04em; margin-top:2px; }
+  .champ .power{ font-size:.68rem; color:var(--muted); margin-top:4px; }
+  .champ.locked .portrait{ background:var(--stone-800); color:var(--stone-600); }
+  .champ.locked .name{ color:var(--stone-600); }
+
+  .tabs{ display:flex; gap:6px; margin-bottom:12px; border-bottom:1px solid var(--stone-800); }
+  .tab{
+    font-family:inherit; background:none; border:none; color:var(--muted); font-size:.76rem; font-weight:700;
+    text-transform:uppercase; letter-spacing:.04em; padding:8px 4px; cursor:pointer; border-bottom:2px solid transparent;
+  }
+  .tab.active{ color:var(--bone); border-color:var(--ember); }
+
+  .task{ display:flex; align-items:center; gap:12px; padding:10px 0; border-top:1px solid var(--stone-800); }
+  .task:first-of-type{ border-top:none; }
+  .task .tick{
+    width:22px;height:22px;border-radius:6px; border:1.5px solid var(--stone-600); flex:none;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .task.done .tick{ background:var(--wraithglass-dim); border-color:var(--wraithglass); }
+  .task .body{ flex:1; }
+  .task .title{ font-size:.82rem; font-weight:600; }
+  .task .prog{ font-size:.7rem; color:var(--muted); margin-top:2px; }
+
+  .toast-stack{ position:fixed; top:14px; left:50%; transform:translateX(-50%); z-index:80; display:flex; flex-direction:column; gap:8px; align-items:center; }
+  .toast{
+    background:var(--stone-850); border:1px solid var(--stone-600); color:var(--bone);
+    padding:9px 16px; border-radius:9px; font-size:.8rem; box-shadow:var(--shadow-sm);
+    animation:toastIn .18s ease;
+  }
+  .toast.win{ border-color:var(--wraithglass); }
+  .toast.loss{ border-color:var(--marrow); }
+  @keyframes toastIn{ from{ opacity:0; transform:translateY(-8px);} to{ opacity:1; transform:translateY(0);} }
+
+  .log-entry{ font-size:.78rem; padding:8px 10px; border-radius:8px; background:var(--stone-850); margin-bottom:6px; border-left:3px solid var(--stone-600); }
+  .log-entry.win{ border-color:var(--wraithglass); }
+  .log-entry.loss{ border-color:var(--marrow); }
+
+  .empty{ font-size:.78rem; color:var(--muted); padding:18px 0; text-align:center; }
+</style>
+
+<div class="embers" id="embers"></div>
+
+<div class="app">
+  <header class="hud">
+    <div class="brand">
+      <div class="sigil"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c2 3-1 4-1 6 0 1.5 1.2 2 1.2 3.4A2.2 2.2 0 0 1 9.9 14.6C8 12.8 8.4 10 10 8"/><path d="M12 21c3 0 5-2 5-4.6 0-1.6-.8-2.4-1.6-3.4"/></svg></div>
+      <div>
+        <h1 class="display">EMBERHOLD</h1>
+        <div class="sub">Vigil-Warden · Level <b id="hudLevel">1</b></div>
+      </div>
+    </div>
+    <div class="resources">
+      <div class="pill vigil" title="Vigil — spent to act">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z"/></svg>
+        <span class="val num" id="hudVigil">130/130</span>
+      </div>
+      <div class="pill ember" title="Ember — the keep's coin">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M9 12h6M12 9v6"/></svg>
+        <span class="val num" id="hudEmber">0</span>
+      </div>
+      <div class="pill glass" title="Wraithglass — rift currency">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 9l8 13 8-13-8-7z"/><path d="M4 9h16M12 2l8 7-8 13-8-13z"/></svg>
+        <span class="val num" id="hudGlass">0</span>
+      </div>
+      <div class="pill marrow" title="Marrow — bound souls">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9" r="6"/><path d="M9 15l-1 6M15 15l1 6M12 15v6"/></svg>
+        <span class="val num" id="hudMarrow">0</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="keep">
+    <div class="keep-head">
+      <h2 class="display">THE KEEP</h2>
+      <p id="powerLine">Power <span class="num">0</span></p>
+    </div>
+    <div class="grid" id="keepGrid"></div>
+  </main>
+
+  <nav class="dock">
+    <button class="dock-btn" data-open="bazaar">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8l1-4h14l1 4"/><path d="M4 8h16v12H4z"/><path d="M9 12v4M15 12v4"/></svg>
+      Bazaar
+    </button>
+    <button class="dock-btn" data-open="chronicle">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4h12v16l-6-3-6 3V4z"/></svg>
+      Chronicle
+    </button>
+    <button class="dock-btn" data-open="codex">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5a2 2 0 0 1 2-2h11v16H6a2 2 0 0 0-2 2V5z"/><path d="M8 8h6M8 12h6"/></svg>
+      Codex
+    </button>
+    <button class="dock-btn" data-open="roster">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><path d="M2 20c0-3.3 3.1-6 7-6s7 2.7 7 6"/><circle cx="17" cy="8" r="2.4"/><path d="M16 14.2c2.9.4 5 2.6 5 5.8"/></svg>
+      Roster
+    </button>
+    <button class="dock-btn" data-open="warband">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v18M6 3l10 3-10 3"/></svg>
+      Warband
+    </button>
+    <div class="dock-spacer"></div>
+    <button class="march" data-open="proving">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20 20 4M14 4h6v6M8 8 4 4"/></svg>
+      March
+    </button>
+  </nav>
+</div>
+
+<div id="modalLayer"></div>
+<div class="toast-stack" id="toastStack"></div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ============================= DATA ============================= */
+
+  var RARITY = {
+    common:    { label:"Common",    order:0, weight:60, min:18,  max:32,  marrow:5,   color:"var(--muted)" },
+    rare:      { label:"Rare",      order:1, weight:26, min:55,  max:85,  marrow:15,  color:"var(--wraithglass)" },
+    epic:      { label:"Epic",      order:2, weight:11, min:140, max:210, marrow:40,  color:"var(--epic)" },
+    legendary: { label:"Legendary", order:3, weight:3,  min:380, max:560, marrow:120, color:"var(--gold-trim)" }
+  };
+
+  var CHAMPIONS = [
+    { id:"c1", name:"Hearthguard Recruit", rarity:"common" },
+    { id:"c2", name:"River Skirmisher",    rarity:"common" },
+    { id:"c3", name:"Stonepaw Whelp",      rarity:"common" },
+    { id:"c4", name:"Cinder Militiaman",   rarity:"common" },
+    { id:"r1", name:"Storm Wraith",        rarity:"rare" },
+    { id:"r2", name:"Ember Duelist",       rarity:"rare" },
+    { id:"r3", name:"Moonlit Ranger",      rarity:"rare" },
+    { id:"r4", name:"Iron Vanguard",       rarity:"rare" },
+    { id:"e1", name:"Crystal Seraph",      rarity:"epic" },
+    { id:"e2", name:"Voidfang Assassin",   rarity:"epic" },
+    { id:"e3", name:"Runic Colossus",      rarity:"epic" },
+    { id:"e4", name:"Tidecaller Priestess",rarity:"epic" },
+    { id:"l1", name:"Solaris Phoenix",     rarity:"legendary" },
+    { id:"l2", name:"Abyssal Sovereign",   rarity:"legendary" },
+    { id:"l3", name:"Astral Lion King",    rarity:"legendary" },
+    { id:"l4", name:"Chrono Warden",       rarity:"legendary" }
+  ];
+
+  var TRIALS = [
+    { id:"t_found",  title:"Found the Keep",                    goal:1, auto:true,  reward:{ember:100} },
+    { id:"t_lvl3",   title:"Reach Level 3",                      goal:3, track:"level", reward:{glass:15} },
+    { id:"t_recruit",title:"Recruit 3 champions",                goal:3, track:"recruits", reward:{ember:200} },
+    { id:"t_win1",   title:"Win a bout at the Proving Ring",     goal:1, track:"wins", reward:{glass:10} },
+    { id:"t_forge",  title:"Temper the sigil at the Foundry",    goal:1, track:"forges", reward:{ember:150} },
+    { id:"t_rift",   title:"Pull the Rift Gate once",            goal:1, track:"pulls", reward:{marrow:20} },
+    { id:"t_vein5",  title:"Draw Ember from the Deep Vein x5",   goal:5, track:"veinCollects", reward:{ember:250} },
+    { id:"t_stage5", title:"Reach Proving Ring stage 5",         goal:5, track:"stage", reward:{glass:25, marrow:30} }
+  ];
+
+  var BOUNTIES = [
+    { id:"b_vein",  title:"Draw from the Deep Vein",  goal:1, track:"d_vein",  reward:{ember:80} },
+    { id:"b_train", title:"Train once at the Keep Hall", goal:1, track:"d_train", reward:{ember:60} },
+    { id:"b_win",   title:"Win a bout at the Proving Ring", goal:1, track:"d_win", reward:{glass:5} },
+    { id:"b_spend", title:"Spend Vigil twice",         goal:2, track:"d_vigil", reward:{ember:100} }
+  ];
+
+  var WARBANDS = [
+    { name:"The Hollow Chain", power:"48,200" },
+    { name:"Ashfall Compact",  power:"41,900" },
+    { name:"Wraithglass Cabal",power:"37,650" },
+    { name:"The Nine Vigils",  power:"33,010" }
+  ];
+
+  var VIGIL_REGEN_MS = 3*60*1000;   // 1 vigil per 3 min
+  var VEIN_CAP_MS   = 6*60*60*1000; // 6h offline cap
+  var RIFT_FREE_MS  = (8*60+30)*60*1000; // 8h30m
+  var SAVE_KEY = "emberhold_save_v2";
+
+  /* ============================= STATE ============================= */
+
+  var state = null;
+
+  function freshState(){
+    var s = {
+      level:1, xp:0,
+      vigil:130, vigilMax:130, vigilFrac:0,
+      ember:260, glass:24, marrow:0,
+      sigilStars:0,
+      roster:[],
+      veinLastCollect: Date.now(),
+      veinAccrued: 0,
+      riftLastFree: Date.now() - RIFT_FREE_MS, // free pull available immediately on day 1
+      riftPity: 0,
+      provingStage: 1,
+      warbandJoined: null,
+      trialProgress:{}, trialClaimed:{},
+      bountyProgress:{}, bountyClaimed:{}, bountyDate: todayStr(),
+      counters:{ level:1, recruits:0, wins:0, forges:0, pulls:0, veinCollects:0, stage:1 },
+      lastSeen: Date.now(),
+      log:[]
+    };
+    var starter = rollChampion("common");
+    s.roster.push(starter);
+    s.counters.recruits = 1;
+    return s;
+  }
+
+  function todayStr(){ var d=new Date(); return d.getFullYear()+"-"+d.getMonth()+"-"+d.getDate(); }
+
+  function save(){ state.lastSeen = Date.now(); localStorage.setItem(SAVE_KEY, JSON.stringify(state)); }
+  function load(){
+    try{
+      var raw = localStorage.getItem(SAVE_KEY);
+      if(!raw) return null;
+      var s = JSON.parse(raw);
+      if(!s || typeof s !== "object") return null;
+      return s;
+    }catch(e){ return null; }
+  }
+
+  /* ============================= HELPERS ============================= */
+
+  function clamp(n,a,b){ return Math.max(a, Math.min(b, n)); }
+  function fmt(n){
+    n = Math.floor(n);
+    if(n >= 1000000) return (n/1000000).toFixed(2).replace(/\.00$/,"")+"M";
+    if(n >= 10000) return (n/1000).toFixed(1).replace(/\.0$/,"")+"K";
+    return n.toString();
+  }
+  function pickWeighted(){
+    var total = 0, r;
+    for(r in RARITY) total += RARITY[r].weight;
+    var roll = Math.random()*total, acc = 0;
+    for(r in RARITY){
+      acc += RARITY[r].weight;
+      if(roll <= acc) return r;
+    }
+    return "common";
+  }
+  function rollChampion(forceRarity){
+    var rarity = forceRarity || pickWeighted();
+    var pool = CHAMPIONS.filter(function(c){ return c.rarity === rarity; });
+    var tpl = pool[Math.floor(Math.random()*pool.length)];
+    var band = RARITY[rarity];
+    var power = Math.round(band.min + Math.random()*(band.max-band.min));
+    return { uid: "u"+Date.now().toString(36)+Math.floor(Math.random()*9999), tid: tpl.id, name: tpl.name, rarity: rarity, power: power };
+  }
+  function xpToNext(level){ return 80 + level*40; }
+  function playerPower(){
+    var rosterPower = state.roster.reduce(function(sum,c){ return sum + c.power; }, 0);
+    return Math.round(25 + state.level*6 + state.sigilStars*12 + rosterPower);
+  }
+  function track(key, amount){
+    amount = amount || 1;
+    state.counters[key] = (state.counters[key]||0) + amount;
+  }
+  function trackDaily(key, amount){
+    amount = amount || 1;
+    state.bountyProgress[key] = (state.bountyProgress[key]||0) + amount;
+  }
+
+  /* ============================= TOASTS ============================= */
+
+  function toast(msg, cls){
+    var stack = document.getElementById("toastStack");
+    var el = document.createElement("div");
+    el.className = "toast" + (cls?(" "+cls):"");
+    el.textContent = msg;
+    stack.appendChild(el);
+    setTimeout(function(){ el.style.transition="opacity .3s"; el.style.opacity="0"; setTimeout(function(){ el.remove(); }, 300); }, 2600);
+  }
+
+  function grantReward(reward, sourceLabel){
+    var parts = [];
+    if(reward.ember){ state.ember += reward.ember; parts.push("+"+fmt(reward.ember)+" Ember"); }
+    if(reward.glass){ state.glass += reward.glass; parts.push("+"+fmt(reward.glass)+" Wraithglass"); }
+    if(reward.marrow){ state.marrow += reward.marrow; parts.push("+"+fmt(reward.marrow)+" Marrow"); }
+    if(parts.length) toast((sourceLabel?sourceLabel+": ":"")+parts.join(", "), "win");
+  }
+
+  /* ============================= OFFLINE / TICK ============================= */
+
+  function resolveOffline(){
+    var now = Date.now();
+    var elapsed = Math.max(0, now - state.lastSeen);
+    if(elapsed < 5000){ state.lastSeen = now; return; }
+
+    var vigilGained = Math.floor(elapsed / VIGIL_REGEN_MS);
+    if(vigilGained > 0) state.vigil = clamp(state.vigil + vigilGained, 0, state.vigilMax);
+
+    var veinElapsed = Math.min(elapsed, VEIN_CAP_MS);
+    var rate = 3 + state.level*0.6;
+    state.veinAccrued = clamp(state.veinAccrued + (veinElapsed/1000)*rate, 0, rate*VEIN_CAP_MS/1000);
+
+    if(elapsed > 60000){
+      toast("While the keep stood watch: +"+fmt(vigilGained)+" Vigil, "+fmt(state.veinAccrued)+" Ember waiting at the Deep Vein", "win");
+    }
+    state.lastSeen = now;
+  }
+
+  var vigilTimerMs = 0;
+  function tick(dt){
+    // vigil regen
+    if(state.vigil < state.vigilMax){
+      vigilTimerMs += dt;
+      if(vigilTimerMs >= VIGIL_REGEN_MS){
+        var gained = Math.floor(vigilTimerMs / VIGIL_REGEN_MS);
+        state.vigil = clamp(state.vigil + gained, 0, state.vigilMax);
+        vigilTimerMs -= gained*VIGIL_REGEN_MS;
+      }
+    } else {
+      vigilTimerMs = 0;
+    }
+    // vein accrual
+    var rate = 3 + state.level*0.6;
+    var cap = rate*VEIN_CAP_MS/1000;
+    state.veinAccrued = clamp(state.veinAccrued + (dt/1000)*rate, 0, cap);
+
+    renderHUD();
+    if(currentModal) refreshModal();
+    renderGrid(); // cheap enough; keeps countdowns/badges live
+  }
+
+  /* ============================= ACTIONS ============================= */
+
+  function spendVigil(n){
+    if(state.vigil < n) return false;
+    state.vigil -= n;
+    trackDaily("d_vigil", 1);
+    return true;
+  }
+
+  function gainXP(amount){
+    state.xp += amount;
+    var leveled = false;
+    while(state.xp >= xpToNext(state.level)){
+      state.xp -= xpToNext(state.level);
+      state.level += 1;
+      state.vigilMax += 4;
+      state.ember += state.level*20;
+      leveled = true;
+    }
+    if(leveled){
+      state.counters.level = state.level;
+      toast("The Keep rises — now Level "+state.level, "win");
+    }
+    return leveled;
+  }
+
+  function doTrain(){
+    var cost = 40 + state.level*5;
+    if(state.ember < cost){ toast("Not enough Ember to train ("+cost+").", "loss"); return; }
+    if(!spendVigil(10)){ toast("Not enough Vigil to train.", "loss"); return; }
+    state.ember -= cost;
+    var xp = 25 + Math.floor(Math.random()*20);
+    gainXP(xp);
+    trackDaily("d_train", 1);
+    toast("Training complete: +"+xp+" XP", "win");
+    save(); renderAll();
+  }
+
+  function forgeCost(){ return Math.round(120*Math.pow(state.sigilStars+1, 1.15)); }
+  function forgeMarrowCost(){ return state.sigilStars >= 5 ? (state.sigilStars-4)*10 : 0; }
+  function doForge(){
+    if(state.sigilStars >= 10){ toast("The sigil is already at its zenith.", "loss"); return; }
+    var cost = forgeCost(), marrowCost = forgeMarrowCost();
+    if(state.ember < cost || state.marrow < marrowCost){ toast("Not enough resources to temper the sigil.", "loss"); return; }
+    state.ember -= cost; state.marrow -= marrowCost;
+    state.sigilStars += 1;
+    track("forges", 1);
+    toast("The sigil is tempered — ★"+state.sigilStars, "win");
+    save(); renderAll();
+  }
+
+  function recruitCost(){ return 180 + state.roster.length*6; }
+  function doRecruit(){
+    var cost = recruitCost();
+    if(state.ember < cost){ toast("Not enough Ember to recruit.", "loss"); return; }
+    state.ember -= cost;
+    var rarity = Math.random() < 0.18 ? "rare" : "common";
+    var champ = rollChampion(rarity);
+    state.roster.push(champ);
+    track("recruits", 1);
+    toast("The Wanderer's Rest welcomes "+champ.name+" ("+RARITY[champ.rarity].label+")", "win");
+    save(); renderAll();
+  }
+
+  function riftPull(times){
+    var costEach = times === 5 ? 11 : 12;
+    var total = times === 5 ? 55 : 12;
+    if(state.glass < total){ toast("Not enough Wraithglass for the Rift Gate.", "loss"); return; }
+    state.glass -= total;
+    var results = [];
+    for(var i=0;i<times;i++){
+      state.riftPity += 1;
+      var forced = null;
+      if(state.riftPity >= 60){ forced = "legendary"; state.riftPity = 0; }
+      else if(state.riftPity % 10 === 0){ forced = Math.random()<0.5 ? "epic" : "legendary"; }
+      var champ = rollChampion(forced);
+      if(RARITY[champ.rarity].order >= 2) state.riftPity = 0;
+      state.roster.push(champ);
+      results.push(champ);
+    }
+    track("pulls", times);
+    var best = results.slice().sort(function(a,b){ return RARITY[b.rarity].order - RARITY[a.rarity].order; })[0];
+    toast("The Rift opens: "+results.length+" champion(s) drawn — best: "+best.name+" ("+RARITY[best.rarity].label+")", "win");
+    save(); renderAll();
+  }
+
+  function riftClaimFree(){
+    var now = Date.now();
+    if(now - state.riftLastFree < RIFT_FREE_MS){ toast("The Rift has not settled yet.", "loss"); return; }
+    state.riftLastFree = now;
+    var champ = rollChampion();
+    state.roster.push(champ);
+    track("pulls", 1);
+    toast("Free Rift pull: "+champ.name+" ("+RARITY[champ.rarity].label+")", "win");
+    save(); renderAll();
+  }
+
+  function buyVigilDraught(){
+    var cost = 250;
+    if(state.ember < cost){ toast("Not enough Ember.", "loss"); return; }
+    if(state.vigil >= state.vigilMax){ toast("Vigil is already full.", "loss"); return; }
+    state.ember -= cost; state.vigil = state.vigilMax;
+    toast("Vigil Draught quaffed — Vigil restored.", "win");
+    save(); renderAll();
+  }
+  function buyGlassExchange(){
+    var cost = 500;
+    if(state.ember < cost){ toast("Not enough Ember.", "loss"); return; }
+    state.ember -= cost; state.glass += 5;
+    toast("The Bazaar trades 500 Ember for 5 Wraithglass.", "win");
+    save(); renderAll();
+  }
+  function buyInsight(){
+    var cost = 300;
+    if(state.ember < cost){ toast("Not enough Ember.", "loss"); return; }
+    state.ember -= cost;
+    gainXP(60);
+    toast("Elixir of Insight: +60 XP", "win");
+    save(); renderAll();
+  }
+
+  function doProvingBout(){
+    if(!spendVigil(15)){ toast("Not enough Vigil to march.", "loss"); return; }
+    var stage = state.provingStage;
+    var enemyPower = Math.round(60 + stage*42 + (Math.random()*30-15));
+    var myPower = playerPower();
+    var winChance = clamp(myPower/(myPower+enemyPower), 0.05, 0.95);
+    var won = Math.random() < winChance;
+    var entry = { stage:stage, myPower:myPower, enemyPower:enemyPower, won:won, t:Date.now() };
+    state.log.unshift(entry);
+    state.log = state.log.slice(0,12);
+    if(won){
+      var emberR = 40 + stage*18;
+      var glassR = stage % 5 === 0 ? 5 : 0;
+      var marrowR = stage % 10 === 0 ? 15 : 0;
+      grantReward({ember:emberR, glass:glassR, marrow:marrowR}, "Proving Ring victory");
+      state.provingStage += 1;
+      track("wins", 1);
+      track("stage", 0);
+      state.counters.stage = state.provingStage;
+      trackDaily("d_win", 1);
+    } else {
+      var consolation = Math.round((40+stage*18)*0.25);
+      state.ember += consolation;
+      toast("The line held, barely. +"+consolation+" Ember", "loss");
+    }
+    save(); renderAll();
+  }
+
+  function collectVein(){
+    if(state.veinAccrued < 1){ toast("The Deep Vein has little to give yet.", "loss"); return; }
+    var gained = Math.floor(state.veinAccrued);
+    state.ember += gained;
+    state.veinAccrued -= gained;
+    track("veinCollects", 1);
+    trackDaily("d_vein", 1);
+    toast("Deep Vein yields +"+fmt(gained)+" Ember", "win");
+    save(); renderAll();
+  }
+
+  function sacrificeChampion(uid){
+    var idx = state.roster.findIndex(function(c){ return c.uid === uid; });
+    if(idx < 0) return;
+    if(state.roster.length <= 1){ toast("The Keep needs at least one champion standing.", "loss"); return; }
+    var champ = state.roster[idx];
+    var gained = RARITY[champ.rarity].marrow;
+    state.roster.splice(idx,1);
+    state.marrow += gained;
+    toast(champ.name+" is given to the Marrow Altar — +"+gained+" Marrow", "win");
+    save(); renderAll();
+  }
+
+  function riteOfAscension(){
+    var cost = 260;
+    if(state.marrow < cost){ toast("Not enough Marrow for the Rite.", "loss"); return; }
+    state.marrow -= cost;
+    var champ = rollChampion("legendary");
+    state.roster.push(champ);
+    toast("The Rite is complete: "+champ.name+" answers the call.", "win");
+    save(); renderAll();
+  }
+
+  function pledgeWarband(name){
+    if(state.warbandJoined){ return; }
+    state.warbandJoined = name;
+    state.ember += 150;
+    toast("Pledged to "+name+" — +150 Ember", "win");
+    save(); renderAll();
+  }
+
+  function claimTrial(t){
+    if(state.trialClaimed[t.id]) return;
+    var progress = t.auto ? 1 : (state.counters[t.track]||0);
+    if(progress < t.goal) return;
+    state.trialClaimed[t.id] = true;
+    grantReward(t.reward, "Trial complete");
+    save(); renderAll();
+  }
+  function claimBounty(b){
+    ensureBountyDay();
+    if(state.bountyClaimed[b.id]) return;
+    var progress = state.bountyProgress[b.track]||0;
+    if(progress < b.goal) return;
+    state.bountyClaimed[b.id] = true;
+    grantReward(b.reward, "Bounty complete");
+    save(); renderAll();
+  }
+  function ensureBountyDay(){
+    var today = todayStr();
+    if(state.bountyDate !== today){
+      state.bountyDate = today;
+      state.bountyProgress = {};
+      state.bountyClaimed = {};
+    }
+  }
+
+  // auto-complete the "found the keep" trial
+  function autoTrials(){
+    TRIALS.forEach(function(t){
+      if(t.auto && !state.trialClaimed[t.id]){
+        // leave for manual claim so the player sees it in the Chronicle
+      }
+    });
+  }
+
+  /* ============================= ICONS ============================= */
+
+  function icon(name){
+    var strokeAttrs = 'fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"';
+    var map = {
+      hall:    '<path d="M12 3c2 3-1 4-1 6 0 1.5 1.2 2 1.2 3.4A2.2 2.2 0 0 1 9.9 14.6C8 12.8 8.4 10 10 8"/><path d="M12 21c3 0 5-2 5-4.6 0-1.6-.8-2.4-1.6-3.4"/>',
+      rift:    '<path d="M12 2 4 9l8 13 8-13-8-7z"/><path d="M4 9h16M12 2l8 7-8 13-8-13z"/>',
+      rest:    '<path d="M5 20h14M6 20V9a6 6 0 0 1 12 0v11"/><path d="M9 9v3M15 9v3"/>',
+      foundry: '<path d="M4 20h16M6 20l1-6h10l1 6"/><path d="M8 14V9l4-4 4 5v4"/>',
+      bazaar:  '<path d="M4 8l1-4h14l1 4"/><path d="M4 8h16v12H4z"/><path d="M9 12v4M15 12v4"/>',
+      proving: '<path d="M4 20 20 4M14 4h6v6M8 8 4 4"/>',
+      vein:    '<path d="M12 2 3 14h6l-1 8 9-12h-6l1-8z"/>',
+      altar:   '<circle cx="12" cy="9" r="6"/><path d="M9 15l-1 6M15 15l1 6M12 15v6"/>',
+      warband: '<path d="M6 3v18M6 3l10 3-10 3"/>',
+      codex:   '<path d="M4 5a2 2 0 0 1 2-2h11v16H6a2 2 0 0 0-2 2V5z"/><path d="M8 8h6M8 12h6"/>',
+      roster:  '<circle cx="9" cy="8" r="3"/><path d="M2 20c0-3.3 3.1-6 7-6s7 2.7 7 6"/><circle cx="17" cy="8" r="2.4"/><path d="M16 14.2c2.9.4 5 2.6 5 5.8"/>',
+      scroll:  '<path d="M6 4h12v16l-6-3-6 3V4z"/>'
+    };
+    return '<svg viewBox="0 0 24 24" '+strokeAttrs+'>'+(map[name]||"")+'</svg>';
+  }
+
+  /* ============================= RENDER: HUD & GRID ============================= */
+
+  function renderHUD(){
+    document.getElementById("hudLevel").textContent = state.level;
+    document.getElementById("hudVigil").textContent = Math.floor(state.vigil)+"/"+state.vigilMax;
+    document.getElementById("hudEmber").textContent = fmt(state.ember);
+    document.getElementById("hudGlass").textContent = fmt(state.glass);
+    document.getElementById("hudMarrow").textContent = fmt(state.marrow);
+    document.getElementById("powerLine").innerHTML = "Power <span class=\"num\">"+fmt(playerPower())+"</span>";
+  }
+
+  function timeLeft(ms){
+    if(ms <= 0) return "Ready";
+    var s = Math.floor(ms/1000);
+    var h = Math.floor(s/3600); s -= h*3600;
+    var m = Math.floor(s/60);
+    return (h>0?h+"h ":"")+m+"m";
+  }
+
+  function renderGrid(){
+    var grid = document.getElementById("keepGrid");
+    var riftMs = RIFT_FREE_MS - (Date.now() - state.riftLastFree);
+    var trialsReady = TRIALS.filter(function(t){ return !state.trialClaimed[t.id] && ((t.auto?1:(state.counters[t.track]||0)) >= t.goal); }).length;
+    ensureBountyDay();
+    var bountiesReady = BOUNTIES.filter(function(b){ return !state.bountyClaimed[b.id] && ((state.bountyProgress[b.track]||0) >= b.goal); }).length;
+
+    var tiles = [
+      { key:"hall", name:"Keep Hall", flavor:"Train the Vigil-Warden and grow the keep's standing.",
+        status:"Lv "+state.level+" · "+state.xp+"/"+xpToNext(state.level)+" XP", feature:true },
+      { key:"rift", name:"Rift Gate", flavor:"Draw bound champions from the tear between worlds.",
+        badge: riftMs<=0 ? "Free pull ready" : "Free in "+timeLeft(riftMs), badgeReady: riftMs<=0 },
+      { key:"rest", name:"Wanderer's Rest", flavor:"Recruit drifters willing to swear the oath.",
+        status: fmt(recruitCost())+" Ember" },
+      { key:"foundry", name:"The Foundry", flavor:"Temper the keep's sigil for lasting power.",
+        status: state.sigilStars>=10 ? "★10 · Zenith" : "★"+state.sigilStars+" → "+fmt(forgeCost())+" Ember" },
+      { key:"proving", name:"Proving Ring", flavor:"Send champions against the dark at the border.",
+        status:"Stage "+state.provingStage, feature:true },
+      { key:"vein", name:"Deep Vein", flavor:"A slow, steady seam of Ember beneath the keep.",
+        status: fmt(state.veinAccrued)+" Ember waiting" },
+      { key:"bazaar", name:"The Bazaar", flavor:"Trade Ember for draughts, elixirs, and glass.",
+        status:"3 wares" },
+      { key:"altar", name:"Marrow Altar", flavor:"Release champions back to the Marrow, or call one forth.",
+        status: fmt(state.marrow)+" Marrow bound" },
+      { key:"warband", name:"Warband Hall", flavor:"Pledge the keep to a warband of the realm.",
+        status: state.warbandJoined ? "Pledged: "+state.warbandJoined : "Unpledged" }
+    ];
+
+    grid.innerHTML = tiles.map(function(t){
+      var badgeHtml = "";
+      if(t.badge) badgeHtml = '<span class="badge'+(t.badgeReady?" ready":"")+'">'+t.badge+'</span>';
+      var hallReady = t.key==="hall" ? (trialsReady+bountiesReady) : 0;
+      return '<button class="tile'+(t.feature?" feature":"")+'" data-open="'+t.key+'">'
+        + '<div class="tile-top"><div class="emblem">'+icon(t.key)+'</div>'
+        + (hallReady>0 ? '<span class="badge">'+hallReady+' ready</span>' : "")
+        + '</div>'
+        + '<h3>'+t.name+'</h3>'
+        + '<p class="flavor">'+t.flavor+'</p>'
+        + (t.status ? '<div class="status">'+t.status+'</div>' : "")
+        + badgeHtml
+        + '</button>';
+    }).join("");
+  }
+
+  /* ============================= MODALS ============================= */
+
+  var currentModal = null;
+  var chronicleTab = "trials";
+  var modalIsFresh = false;
+
+  function closeModal(){
+    currentModal = null;
+    document.getElementById("modalLayer").innerHTML = "";
+  }
+
+  function sheetShell(key, title, emblemKey, lede, bodyHtml){
+    var enter = modalIsFresh ? " enter" : "";
+    return '<div class="overlay'+enter+'" id="overlay">'
+      + '<div class="sheet'+enter+'" role="dialog" aria-modal="true" aria-label="'+title+'">'
+      + '<div class="sheet-head"><div style="display:flex;gap:12px;align-items:flex-start;">'
+      + '<div class="emblem">'+icon(emblemKey)+'</div>'
+      + '<div><h2 class="display">'+title+'</h2><p class="lede">'+lede+'</p></div>'
+      + '</div><button class="close" id="closeBtn" aria-label="Close">✕</button></div>'
+      + bodyHtml
+      + '</div></div>';
+  }
+
+  function openModal(key){
+    currentModal = key;
+    modalIsFresh = true;
+    renderModal();
+  }
+  function refreshModal(){ if(currentModal) renderModal(); }
+
+  function renderModal(){
+    var layer = document.getElementById("modalLayer");
+    var html = "";
+    if(currentModal === "hall") html = modalHall();
+    else if(currentModal === "rift") html = modalRift();
+    else if(currentModal === "rest") html = modalRest();
+    else if(currentModal === "foundry") html = modalFoundry();
+    else if(currentModal === "proving") html = modalProving();
+    else if(currentModal === "vein") html = modalVein();
+    else if(currentModal === "bazaar") html = modalBazaar();
+    else if(currentModal === "altar") html = modalAltar();
+    else if(currentModal === "warband") html = modalWarband();
+    else if(currentModal === "chronicle") html = modalChronicle();
+    else if(currentModal === "codex") html = modalCodex();
+    else if(currentModal === "roster") html = modalRoster();
+    else { closeModal(); return; }
+
+    layer.innerHTML = html;
+    modalIsFresh = false;
+    var overlay = document.getElementById("overlay");
+    if(overlay){
+      overlay.addEventListener("click", function(e){ if(e.target === overlay) closeModal(); });
+    }
+    var closeBtn = document.getElementById("closeBtn");
+    if(closeBtn) closeBtn.addEventListener("click", closeModal);
+    wireModalActions();
+  }
+
+  function wireModalActions(){
+    var layer = document.getElementById("modalLayer");
+    Array.prototype.forEach.call(layer.querySelectorAll("[data-action]"), function(el){
+      el.addEventListener("click", function(){
+        var action = el.getAttribute("data-action");
+        var arg = el.getAttribute("data-arg");
+        ACTIONS[action] && ACTIONS[action](arg);
+      });
+    });
+  }
+
+  var ACTIONS = {
+    train: doTrain,
+    forge: doForge,
+    recruit: doRecruit,
+    riftSingle: function(){ riftPull(1); },
+    riftFive: function(){ riftPull(5); },
+    riftFree: riftClaimFree,
+    buyVigil: buyVigilDraught,
+    buyGlass: buyGlassExchange,
+    buyInsight: buyInsight,
+    provingBout: doProvingBout,
+    collectVein: collectVein,
+    sacrifice: sacrificeChampion,
+    ascend: riteOfAscension,
+    pledge: pledgeWarband,
+    claimTrial: function(id){ var t = TRIALS.find(function(x){return x.id===id;}); if(t) claimTrial(t); },
+    claimBounty: function(id){ var b = BOUNTIES.find(function(x){return x.id===id;}); if(b) claimBounty(b); },
+    setTab: function(tab){ chronicleTab = tab; renderModal(); }
+  };
+
+  function modalHall(){
+    var pct = clamp((state.xp/xpToNext(state.level))*100, 0, 100);
+    var body = ''
+      + '<div class="stat-grid">'
+      + '<div class="stat"><div class="k">Level</div><div class="v num">'+state.level+'</div></div>'
+      + '<div class="stat"><div class="k">Power</div><div class="v num">'+fmt(playerPower())+'</div></div>'
+      + '<div class="stat"><div class="k">Champions</div><div class="v num">'+state.roster.length+'</div></div>'
+      + '</div>'
+      + '<div class="meta" style="margin-bottom:6px;">'+state.xp+' / '+xpToNext(state.level)+' XP</div>'
+      + '<div class="barwrap"><i style="width:'+pct+'%"></i></div>'
+      + '<div class="row"><div><div class="label">Train the Warden</div><div class="meta">10 Vigil · '+fmt(40+state.level*5)+' Ember → 25–45 XP</div></div>'
+      + '<button class="btn primary" data-action="train">Train</button></div>';
+    return sheetShell("hall","Keep Hall","hall","Every hour spent training here raises the Warden's standing — and the keep's reach.", body);
+  }
+
+  function modalRift(){
+    var ms = RIFT_FREE_MS - (Date.now() - state.riftLastFree);
+    var body = ''
+      + '<div class="row"><div><div class="label">Free pull</div><div class="meta">Resets every 8h 30m</div></div>'
+      + '<button class="btn primary" data-action="riftFree" '+(ms>0?"disabled":"")+'>'+(ms>0?timeLeft(ms):"Claim")+'</button></div>'
+      + '<div class="row"><div><div class="label">Single pull</div><div class="meta">12 Wraithglass</div></div>'
+      + '<button class="btn" data-action="riftSingle" '+(state.glass<12?"disabled":"")+'>Pull</button></div>'
+      + '<div class="row"><div><div class="label">Five-pull</div><div class="meta">55 Wraithglass · discounted</div></div>'
+      + '<button class="btn" data-action="riftFive" '+(state.glass<55?"disabled":"")+'>Pull ×5</button></div>'
+      + '<div class="meta" style="margin-top:10px;">Pity: guaranteed Epic+ every 10 pulls, guaranteed Legendary by 60. Current streak: '+state.riftPity+'</div>';
+    return sheetShell("rift","Rift Gate","rift","A tear in the world's weave, held open by the keep's Wraithglass.", body);
+  }
+
+  function modalRest(){
+    var cost = recruitCost();
+    var body = ''
+      + '<div class="row"><div><div class="label">Recruit a drifter</div><div class="meta">'+fmt(cost)+' Ember · mostly Common, some Rare</div></div>'
+      + '<button class="btn primary" data-action="recruit" '+(state.ember<cost?"disabled":"")+'>Recruit</button></div>'
+      + '<div class="meta">Cost rises slowly as the roster grows.</div>';
+    return sheetShell("rest","Wanderer's Rest","rest","Where the keep's coin finds willing swords.", body);
+  }
+
+  function modalFoundry(){
+    var atMax = state.sigilStars >= 10;
+    var cost = forgeCost(), marrowCost = forgeMarrowCost();
+    var body = ''
+      + '<div class="stat-grid"><div class="stat"><div class="k">Sigil</div><div class="v num">★'+state.sigilStars+' / 10</div></div>'
+      + '<div class="stat"><div class="k">Power bonus</div><div class="v num">+'+(state.sigilStars*12)+'</div></div></div>'
+      + '<div class="row"><div><div class="label">Temper the sigil</div><div class="meta">'+(atMax?"Maximum reached":fmt(cost)+" Ember"+(marrowCost?" + "+marrowCost+" Marrow":""))+'</div></div>'
+      + '<button class="btn primary" data-action="forge" '+(atMax||state.ember<cost||state.marrow<marrowCost?"disabled":"")+'>Temper</button></div>';
+    return sheetShell("foundry","The Foundry","foundry","Each star burned into the sigil hardens every champion who marches under it.", body);
+  }
+
+  function modalProving(){
+    var stage = state.provingStage;
+    var enemyEstimate = Math.round(60+stage*42);
+    var my = playerPower();
+    var chance = Math.round(clamp(my/(my+enemyEstimate),0.05,0.95)*100);
+    var logHtml = state.log.length ? state.log.map(function(l){
+      return '<div class="log-entry '+(l.won?"win":"loss")+'">Stage '+l.stage+' — '+fmt(l.myPower)+' vs '+fmt(l.enemyPower)+' — '+(l.won?"Victory":"Repelled")+'</div>';
+    }).join("") : '<div class="empty">No bouts yet. March to begin the Chronicle.</div>';
+    var body = ''
+      + '<div class="stat-grid">'
+      + '<div class="stat"><div class="k">Stage</div><div class="v num">'+stage+'</div></div>'
+      + '<div class="stat"><div class="k">Your power</div><div class="v num">'+fmt(my)+'</div></div>'
+      + '<div class="stat"><div class="k">Win odds</div><div class="v num">'+chance+'%</div></div>'
+      + '</div>'
+      + '<div class="row"><div><div class="label">March on the ring</div><div class="meta">15 Vigil</div></div>'
+      + '<button class="btn primary" data-action="provingBout" '+(state.vigil<15?"disabled":"")+'>March</button></div>'
+      + '<h3 class="display" style="font-size:.85rem;margin:14px 0 8px;color:var(--bone-dim);">Recent bouts</h3>'
+      + logHtml;
+    return sheetShell("proving","Proving Ring","proving","Where champions are tested against what waits beyond the wall.", body);
+  }
+
+  function modalVein(){
+    var rate = 3+state.level*0.6;
+    var cap = rate*VEIN_CAP_MS/1000;
+    var pct = clamp((state.veinAccrued/cap)*100,0,100);
+    var body = ''
+      + '<div class="meta" style="margin-bottom:6px;">'+fmt(state.veinAccrued)+' / '+fmt(cap)+' Ember accrued</div>'
+      + '<div class="barwrap"><i style="width:'+pct+'%"></i></div>'
+      + '<div class="row"><div><div class="label">Draw Ember</div><div class="meta">Accrues '+rate.toFixed(1)+'/sec, caps after 6h</div></div>'
+      + '<button class="btn primary" data-action="collectVein" '+(state.veinAccrued<1?"disabled":"")+'>Collect</button></div>';
+    return sheetShell("vein","Deep Vein","vein","A seam of Ember running under the keep's oldest stone.", body);
+  }
+
+  function modalBazaar(){
+    var body = ''
+      + '<div class="row"><div><div class="label">Vigil Draught</div><div class="meta">250 Ember · fully restores Vigil</div></div>'
+      + '<button class="btn" data-action="buyVigil" '+(state.ember<250?"disabled":"")+'>Buy</button></div>'
+      + '<div class="row"><div><div class="label">Wraithglass Exchange</div><div class="meta">500 Ember → 5 Wraithglass</div></div>'
+      + '<button class="btn" data-action="buyGlass" '+(state.ember<500?"disabled":"")+'>Trade</button></div>'
+      + '<div class="row"><div><div class="label">Elixir of Insight</div><div class="meta">300 Ember → +60 XP</div></div>'
+      + '<button class="btn" data-action="buyInsight" '+(state.ember<300?"disabled":"")+'>Buy</button></div>';
+    return sheetShell("bazaar","The Bazaar","bazaar","Traders who ask no questions about where Ember comes from.", body);
+  }
+
+  function modalAltar(){
+    var list = state.roster.length ? state.roster.slice().sort(function(a,b){return RARITY[b.rarity].order-RARITY[a.rarity].order;}).map(function(c){
+      return '<div class="row"><div><div class="label">'+c.name+'</div><div class="meta" style="color:'+RARITY[c.rarity].color+'">'+RARITY[c.rarity].label+' · Power '+c.power+'</div></div>'
+        + '<button class="btn" data-action="sacrifice" data-arg="'+c.uid+'">+'+RARITY[c.rarity].marrow+' Marrow</button></div>';
+    }).join("") : '<div class="empty">No champions to release.</div>';
+    var body = ''
+      + '<div class="row"><div><div class="label">Rite of Ascension</div><div class="meta">260 Marrow → guaranteed Legendary champion</div></div>'
+      + '<button class="btn primary" data-action="ascend" '+(state.marrow<260?"disabled":"")+'>Perform Rite</button></div>'
+      + '<h3 class="display" style="font-size:.85rem;margin:14px 0 4px;color:var(--bone-dim);">Release a champion</h3>'
+      + list;
+    return sheetShell("altar","Marrow Altar","altar","What is released here is never truly lost.", body);
+  }
+
+  function modalWarband(){
+    var body = WARBANDS.map(function(w){
+      var joined = state.warbandJoined === w.name;
+      return '<div class="row"><div><div class="label">'+w.name+'</div><div class="meta">Power '+w.power+'</div></div>'
+        + '<button class="btn '+(joined?"":"primary")+'" data-action="pledge" data-arg="'+w.name+'" '+(state.warbandJoined?"disabled":"")+'>'+(joined?"Pledged":"Pledge")+'</button></div>';
+    }).join("");
+    return sheetShell("warband","Warband Hall","warband","Rival banners of the realm, each watching Emberhold's rise.", body);
+  }
+
+  function modalChronicle(){
+    ensureBountyDay();
+    var trialsHtml = TRIALS.map(function(t){
+      var progress = t.auto ? 1 : (state.counters[t.track]||0);
+      var done = progress >= t.goal;
+      var claimed = state.trialClaimed[t.id];
+      return '<div class="task'+(claimed?" done":"")+'"><div class="tick">'+(claimed?"✓":"")+'</div>'
+        + '<div class="body"><div class="title">'+t.title+'</div><div class="prog">'+Math.min(progress,t.goal)+' / '+t.goal+'</div></div>'
+        + '<button class="btn '+(done&&!claimed?"primary":"")+'" data-action="claimTrial" data-arg="'+t.id+'" '+((!done||claimed)?"disabled":"")+'>'+(claimed?"Claimed":"Claim")+'</button></div>';
+    }).join("");
+    var bountiesHtml = BOUNTIES.map(function(b){
+      var progress = state.bountyProgress[b.track]||0;
+      var done = progress >= b.goal;
+      var claimed = state.bountyClaimed[b.id];
+      return '<div class="task'+(claimed?" done":"")+'"><div class="tick">'+(claimed?"✓":"")+'</div>'
+        + '<div class="body"><div class="title">'+b.title+'</div><div class="prog">'+Math.min(progress,b.goal)+' / '+b.goal+'</div></div>'
+        + '<button class="btn '+(done&&!claimed?"primary":"")+'" data-action="claimBounty" data-arg="'+b.id+'" '+((!done||claimed)?"disabled":"")+'>'+(claimed?"Claimed":"Claim")+'</button></div>';
+    }).join("");
+    var body = ''
+      + '<div class="tabs"><button class="tab '+(chronicleTab==="trials"?"active":"")+'" data-action="setTab" data-arg="trials">Trials</button>'
+      + '<button class="tab '+(chronicleTab==="bounties"?"active":"")+'" data-action="setTab" data-arg="bounties">Bounties · resets daily</button></div>'
+      + (chronicleTab==="trials" ? trialsHtml : bountiesHtml);
+    return sheetShell("chronicle","Chronicle","scroll","Trials mark the keep's history. Bounties renew with the sun.", body);
+  }
+
+  function modalCodex(){
+    var owned = {};
+    state.roster.forEach(function(c){ owned[c.tid] = true; });
+    var body = '<div class="codex-grid">' + CHAMPIONS.map(function(c){
+      var has = owned[c.id];
+      var band = RARITY[c.rarity];
+      var bg = has ? "linear-gradient(160deg, "+band.color+"55, transparent)" : "";
+      return '<div class="champ'+(has?"":" locked")+'">'
+        + '<div class="portrait" style="background:'+(has?bg:"")+';color:'+(has?band.color:"")+'">'+(has?c.name.charAt(0):"?")+'</div>'
+        + '<div class="name">'+(has?c.name:"Unknown")+'</div>'
+        + '<div class="rarity" style="color:'+band.color+'">'+band.label+'</div>'
+        + '</div>';
+    }).join("") + '</div>';
+    return sheetShell("codex","Codex","codex","Every champion known to walk under Emberhold's banner — met, or merely rumored.", body);
+  }
+
+  function modalRoster(){
+    var sorted = state.roster.slice().sort(function(a,b){ return RARITY[b.rarity].order-RARITY[a.rarity].order || b.power-a.power; });
+    var body = '<div class="roster-grid">' + sorted.map(function(c){
+      var band = RARITY[c.rarity];
+      return '<div class="champ">'
+        + '<div class="portrait" style="background:linear-gradient(160deg,'+band.color+'55,transparent);color:'+band.color+'">'+c.name.charAt(0)+'</div>'
+        + '<div class="name">'+c.name+'</div>'
+        + '<div class="rarity" style="color:'+band.color+'">'+band.label+'</div>'
+        + '<div class="power num">'+c.power+' pwr</div>'
+        + '</div>';
+    }).join("") + '</div>';
+    return sheetShell("roster","Champion Roster","roster","Every sword, bow, and bound spirit sworn to the keep.", body);
+  }
+
+  function renderAll(){
+    renderHUD();
+    renderGrid();
+    if(currentModal) renderModal();
+  }
+
+  /* ============================= EMBERS BG ============================= */
+
+  function spawnEmbers(){
+    var wrap = document.getElementById("embers");
+    var n = 14;
+    for(var i=0;i<n;i++){
+      var s = document.createElement("span");
+      s.style.left = (Math.random()*100)+"%";
+      s.style.setProperty("--drift", (Math.random()*40-20)+"px");
+      s.style.animationDuration = (7+Math.random()*8)+"s";
+      s.style.animationDelay = (Math.random()*10)+"s";
+      wrap.appendChild(s);
+    }
+  }
+
+  /* ============================= BOOT ============================= */
+
+  function boot(){
+    var loaded = load();
+    state = loaded || freshState();
+    // backfill any new fields on older saves
+    var fresh = freshState();
+    Object.keys(fresh).forEach(function(k){ if(state[k] === undefined) state[k] = fresh[k]; });
+    resolveOffline();
+    ensureBountyDay();
+    autoTrials();
+    spawnEmbers();
+    renderAll();
+    save();
+
+    var last = Date.now();
+    setInterval(function(){
+      var now = Date.now();
+      var dt = now - last;
+      last = now;
+      tick(dt);
+    }, 1000);
+
+    setInterval(save, 15000);
+    window.addEventListener("beforeunload", save);
+
+    // one delegated listener covers every [data-open] trigger: keep tiles,
+    // the dock, and the March button alike, regardless of re-renders.
+    document.addEventListener("click", function(e){
+      var btn = e.target.closest && e.target.closest("[data-open]");
+      if(btn) openModal(btn.getAttribute("data-open"));
+    });
+  }
+
+  if(document.readyState === "loading"){
+    document.addEventListener("DOMContentLoaded", boot);
+  } else {
+    boot();
+  }
+})();
+</script>
+
+</body>
+</html>
